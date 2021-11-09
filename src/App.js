@@ -1,17 +1,23 @@
 import { useEffect, useState } from "react";
 import twitterLogo from "./assets/twitter-logo.svg";
+import idl from "./idl.json";
+import kp from "./keypair.json";
+import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
+import { Program, Provider, web3 } from "@project-serum/anchor";
 import "./App.css";
 
 // Constants
 const TWITTER_HANDLE = "_buildspace";
 const TWITTER_LINK = `https://twitter.com/${TWITTER_HANDLE}`;
-const TEST_DATA = [
-  "https://cdn.hopculture.com/wp-content/uploads/2020/04/tavour-bestbeer-LEAD.jpg",
-  "https://cdn.hopculture.com/wp-content/uploads/2020/11/shacksbury-loball3.jpg",
-  "https://cdn.hopculture.com/wp-content/uploads/2020/01/HOLLYWOODACID-scaled.jpeg",
-  "https://cdn.hopculture.com/wp-content/uploads/2020/12/oozlefinch-the-thirsty-caterpillar-giveaway3.jpg",
-  "https://cdn.hopculture.com/wp-content/uploads/2020/12/outerrange-upcountry.jpg",
-];
+
+const { SystemProgram } = web3;
+const arr = Object.values(kp._keypair.secretKey);
+const secret = new Uint8Array(arr);
+let baseAccount = web3.Keypair.fromSecretKey(secret);
+
+const programId = new PublicKey(idl.metadata.address);
+const network = clusterApiUrl("devnet");
+const opts = { preflightCommitment: "processed" };
 
 const App = () => {
   const [walletAddress, setWalletAddress] = useState(null);
@@ -57,16 +63,65 @@ const App = () => {
     }
   };
 
-  const sendArtUrl = () => {
-    if (inputValue.length > 0) {
-      console.log("Sending value:", inputValue);
-    } else {
+  const sendArtUrl = async () => {
+    if (inputValue.length === 0) {
       console.log("Input value is empty");
+      return;
+    }
+    console.log("Sending value:", inputValue);
+
+    try {
+      const provider = getProvider();
+      const program = new Program(idl, programId, provider);
+
+      await program.rpc.addImage(inputValue, {
+        accounts: {
+          baseAccount: baseAccount.publicKey,
+        }
+      });
+      
+      console.log("Sent image successfully!");
+      await fetchImages();
+    } catch (error) {
+      console.log("Error sending image", error);
     }
   };
 
   const onInputChange = (event) => {
     setInputValue(event.target.value);
+  };
+
+  const getProvider = () => {
+    const connection = new Connection(network, opts.preflightCommitment);
+    const provider = new Provider(
+      connection,
+      window.solana,
+      opts.preflightCommitment
+    );
+    return provider;
+  };
+
+  const createImageAccount = async () => {
+    try {
+      const provider = getProvider();
+      const program = new Program(idl, programId, provider);
+
+      await program.rpc.start({
+        accounts: {
+          baseAccount: baseAccount.publicKey,
+          user: provider.wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        },
+        signers: [baseAccount],
+      });
+      console.log(
+        "Created new Base account w address:",
+        baseAccount.publicKey.toString()
+      );
+      await fetchImages();
+    } catch (error) {
+      console.log("Error happened creating image account", error);
+    }
   };
 
   const renderConnectToWalletButton = () => (
@@ -78,28 +133,59 @@ const App = () => {
     </button>
   );
 
-  const renderConnectedContainer = () => (
-    <div className="connected-container">
-      <input
-        type="text"
-        placeholder="add to the mood board"
-        value={inputValue}
-        onChange={onInputChange}
-      />
-      <button className="cta-button submit-gif-button" onClick={sendArtUrl}>
-        Submit
-      </button>
-      <div className="gif-grid">
-        {images.map((url) => {
-          return (
-            <div className="gif-item" key={url}>
-              <img src={url} alt={url} />
-            </div>
-          );
-        })}
+  const renderConnectedContainer = () => {
+    if (images === null) {
+      return (
+        <div className="connected-container">
+          <button
+            className="cta-button submit-gif-button"
+            onClick={createImageAccount}
+          >
+            Do One-time initialization for Artboard program account
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="connected-container">
+        <input
+          type="text"
+          placeholder="add to the mood board"
+          value={inputValue}
+          onChange={onInputChange}
+        />
+        <button className="cta-button submit-gif-button" onClick={sendArtUrl}>
+          Submit
+        </button>
+        <div className="gif-grid">
+          {images.map((item, index) => {
+            return (
+              <div className="gif-item" key={index}>
+                <img src={item.imageUrl} alt={item.imageUrl} />
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
+
+  const fetchImages = async () => {
+    try {
+      const provider = getProvider();
+      const program = new Program(idl, programId, provider);
+      const account = await program.account.baseAccount.fetch(
+        baseAccount.publicKey
+      );
+
+      console.log("got the account", account);
+      setImages(account.imageList);
+    } catch (error) {
+      console.timeLog("Error in fetching images!: ", error);
+      setImages(null);
+    }
+  };
 
   useEffect(() => {
     window.addEventListener(
@@ -110,8 +196,10 @@ const App = () => {
 
   useEffect(() => {
     if (walletAddress) {
-      setImages(TEST_DATA);
+      console.log("fetching images");
+      fetchImages();
     }
+  // eslint-disable-next-line
   }, [walletAddress]);
 
   return (

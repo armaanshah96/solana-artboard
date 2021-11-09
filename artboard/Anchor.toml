@@ -1,0 +1,12 @@
+[programs.devnet]
+artboard = "CjK9Rwj3evef88G411QsUTdihVm63DRfgLEpgYFXG1Q4"
+
+[registry]
+url = "https://anchor.projectserum.com"
+
+[provider]
+cluster = "devnet"
+wallet = "/Users/armaan/.config/solana/id.json"
+
+[scripts]
+test = "node tests/artboard.js"
